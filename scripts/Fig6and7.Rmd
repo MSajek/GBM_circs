@@ -73,7 +73,7 @@ TMM_norm_counts <- sweep(jct_count_matrix_final, MARGIN = 2, norm_factors, `*`) 
 fwrite(TMM_norm_counts, here('counts','GBM_and_brain_all_TMM_norm_junction_counts.tsv'), sep = '\t')
 ```
 
-correlation analysis (Fig 6a-b)
+correlation analysis (Fig 6a-c)
 
 ```{r cor, warning=FALSE, message=FALSE}
 de_circs <- fread(here('dgeRes','GBMvsBrainDGEres.tsv')) %>%
