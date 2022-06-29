@@ -8,6 +8,7 @@ This repo does not contain large files. To obtain genome reference, gtf and circ
 To obtain miRNA binding sites you have to obtain circRNA sequences (as mentioned in previous line) and then run:
 
 sed ‘s/>//g’ < ./circ_seqs/GBM_and_brain_all.fa | sed ‘s/T/U/g’ | sed 'N;s/\n/\t9606\t/' > ./miRNA/GBM_and_brain_all.txt
+
 perl ./miRNA/targetscan_70.pl ./miRNA/humanMirsTargetscan.tsv ./miRNA/GBM_and_brain_all.txt ./miRNA/miR_binding_sites.txt
 
 This analysis may take a few hours or even days.
