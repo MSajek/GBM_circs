@@ -1,0 +1,173 @@
+---
+title: "Fig2"
+author: "Marcin Sajek"
+date: "6/22/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(circMeta)
+library(here)
+```
+
+loading files
+
+```{r loading_files, warning=FALSE, message=FALSE}
+CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$')
+```
+
+DGE healthy brain vs gbm
+
+```{r hb_vs_gbm, warning=FALSE, message=FALSE}
+hbVSgbm.files <- CIRI.files
+hbVSgbm.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
+fdr.level <- 0.05
+hbVSgbm.res <- circJuncDE(paste0(here(),'/ciri_res/',hbVSgbm.files), hbVSgbm.designs,circ.method='CIRI',DE.method='edgeR')
+hbVSgbm.id <- rownames(hbVSgbm.res)[hbVSgbm.res$fdr<fdr.level]
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', hbVSgbm.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+hbVSgbm.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', hbVSgbm.res$gene)
+hbVSgbm.res$geneName <- geneSymbol.res$SYMBOL[match(hbVSgbm.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+hbVSgbm.res.table <- hbVSgbm.res[, c(1:5,8,141:145)]
+fwrite(subset(hbVSgbm.res.table, hbVSgbm.res.table$fdr <= 0.05), file = here('dgeRes','GBMvsBrainDGEres.tsv'), sep = '\t')
+```
+
+DGE healthy brain vs GBM primary
+
+```{r hb_vs_gbmp, warning=FALSE, message=FALSE}
+hbVSgbm_prim.files <- CIRI.files[c(1:18, 19:41)]
+hbVSgbm_prim.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
+fdr.level <- 0.05
+hbVSgbm_prim.res <- circJuncDE(paste0(here(),'/ciri_res/',hbVSgbm_prim.files), hbVSgbm_prim.designs,circ.method='CIRI',DE.method='edgeR')
+hbVSgbm_prim.id <- rownames(hbVSgbm_prim.res)[hbVSgbm_prim.res$fdr<fdr.level]
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', hbVSgbm_prim.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+hbVSgbm_prim.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', hbVSgbm_prim.res$gene)
+hbVSgbm_prim.res$geneName <- geneSymbol.res$SYMBOL[match(hbVSgbm_prim.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+hbVSgbm_prim.res.table <- hbVSgbm_prim.res[, c(1:5,8,132:136)]
+fwrite(subset(hbVSgbm_prim.res.table, hbVSgbm_prim.res.table$fdr <= 0.05), file = here('dgeRes','GBMprimvsBrainDGEres.tsv'), sep = '\t')
+```
+
+DGE gbm prim vs rec
+
+```{r gbmp_vs_gbmr, warning=FALSE, message=FALSE}
+gbm_recVSprim.files <- CIRI.files[c(19:41, 42:44)]
+gbm_recVSprim.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1)
+fdr.level <- 0.05
+gbm_recVSprim.res <- circJuncDE(paste0(here(),'/ciri_res/',gbm_recVSprim.files), gbm_recVSprim.designs,circ.method='CIRI',DE.method='edgeR')
+gbm_recVSprim.id <- rownames(gbm_recVSprim.res)[gbm_recVSprim.res$fdr<fdr.level]
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', gbm_recVSprim.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+gbm_recVSprim.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', gbm_recVSprim.res$gene)
+gbm_recVSprim.res$geneName <- geneSymbol.res$SYMBOL[match(gbm_recVSprim.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+gbm_recVSprim.res.table <- gbm_recVSprim.res[, c(1:5,8,87:91)]
+fwrite(subset(gbm_recVSprim.res.table, gbm_recVSprim.res.table$fdr <= 0.05), file = here('dgeRes','GBMrecVsPrimDGEres.tsv'), sep = '\t')
+```
+
+volcano plot (Fig 2a)
+
+```{r volc_plot, warning=FALSE, message=FALSE}
+de_data <- hbVSgbm.res.table %>%
+  mutate(diff_expressed = factor(case_when(lfc > 0.6 & fdr < 0.05 ~ 'UP',
+                                    lfc < -0.6 & fdr < 0.05 ~ 'DOWN',
+                                    T ~ 'NO'), levels = c('DOWN','UP','NO')))
+
+volc_plot <- ggplot(data=de_data, aes(x=lfc, y=-log10(fdr), col=diff_expressed)) + 
+  geom_point(size = 0.3) + 
+  theme_minimal() +
+  geom_vline(xintercept=c(-0.6, 0.6), col = 'red') +
+  geom_hline(yintercept=-log10(0.05), col = 'red') +
+  scale_color_manual(values=c('blue', 'red', 'black')) +
+  labs(title='glioblastoma vs healthy brain control', x = 'log2FoldChange', y = '-log10(FDR)') + 
+  xlim(-5,5) + 
+  theme(plot.title = element_text(hjust = 0.5, size = 20))+
+  theme(axis.text.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(axis.title.x=element_text(size=20)) +
+  theme(axis.title.y=element_text(size=20)) +
+  theme(legend.text=element_text(size=18)) +
+  theme(legend.title=element_text(size=20)) +
+  guides(color = guide_legend(override.aes = list(size = 3)))
+
+pdf(here('Fig2','2a.pdf'))
+volc_plot
+dev.off()
+```
+
+GSEA GO (Fig 2b)
+
+```{r GSEA_GO, warning=FALSE, message=FALSE}
+go_data <- de_data %>%
+  dplyr::select(c(10,7)) %>%
+  na.omit() %>%
+  group_by(ENSEMBL) %>%
+  mutate(meanLFC = mean(lfc)) %>%
+  arrange(desc(meanLFC)) %>%
+  dplyr::select(-c(2)) %>%
+  distinct(ENSEMBL, .keep_all = T) %>%
+  deframe()
+
+gse <- gseGO(geneList=go_data,
+             ont ='ALL',
+             keyType = 'ENSEMBL',
+             nPerm = 10000,
+             minGSSize = 3,
+             maxGSSize = 800,
+             pvalueCutoff = 0.05,
+             verbose = TRUE,
+             OrgDb = org.Hs.eg.db,
+             pAdjustMethod = 'fdr')
+
+dot_plt <- dotplot(gse, showCategory=22, title = 'Enriched Terms', split='.sign') + 
+  facet_grid(.~.sign) +
+  expand_limits(x = c(0,1))
+
+pdf(here('Fig2','2b.pdf'))
+dot_plt
+dev.off()
+```
+
+circ-lin ratio (Fig 2c)
+
+```{r ratio, warning=FALSE, message=FALSE}
+#when decision will be made
+```
+
+GSEA KEGG (supplementary fig)
+
+```{r GSEA_KEGG, warning=FALSE, message=FALSE}
+ids <- bitr(names(go_data), fromType = 'ENSEMBL', toType = 'ENTREZID', OrgDb='org.Hs.eg.db')
+dedup_ids <- ids[!duplicated(ids[c('ENSEMBL')]),]
+kegg_data <- go_data %>%
+  .[names(.) %in% dedup_ids$ENSEMBL] %>%
+  set_names(dedup_ids$ENTREZID[match(names(.), dedup_ids$ENSEMBL)]) %>%
+  na.omit()
+
+gse_kegg <- gseKEGG(geneList = kegg_data,
+               organism     = 'hsa',
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = 'none',
+               keyType       = 'ncbi-geneid')
+
+dot_plt_kegg <- dotplot(gse_kegg, showCategory = 13, title = 'Enriched Pathways' , split='.sign') + 
+  facet_grid(.~.sign) +
+  expand_limits(x = c(0,1))+
+  theme(axis.text.x = element_text(size = 6))
+
+pdf(here('suppl_figs','GSEA_KEGG.pdf'))
+dot_plt_kegg
+dev.off()
+```

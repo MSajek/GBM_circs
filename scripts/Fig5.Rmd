@@ -1,0 +1,235 @@
+---
+title: "Fig5"
+author: "Marcin Sajek"
+date: "6/26/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE, warning=FALSE, message=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(readxl)
+library(Biostrings)
+library(circMeta)
+library(Rsubread)
+library(edgeR)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(FeatureReachR)
+library(ggpubr)
+library(pheatmap)
+library(here)
+```
+
+loading files with genomic features
+
+```{r loading_features, warning=FALSE, message=FALSE}
+load(here('genomic_features','Exon.hg19.rda'))
+load(here('genomic_features','Gene.hg19.rda'))
+load(here('genomic_features','Intron.hg19.rda'))
+load(here('genomic_features','Alu.hg19.rda'))
+load(here('genomic_features','SINE.hg19.rda'))
+load(here('genomic_features','DARNED.rda'))
+load(here('genomic_features','RADAR.rda'))
+```
+
+loading CIRI files for GBM
+
+```{r load_CIRI_files, warning=FALSE, message=FALSE}
+CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$', full.names = T)[19:44]
+```
+
+enrichment analysis (Fig 5a)
+
+```{r enr_analysis, warning=FALSE, message=FALSE}
+de_data <- fread(here('dgeRes','GBMvsBrainDGEres.tsv')) %>%
+  mutate(de = if_else(lfc > 0, 'upregulated','downregulated'),
+         ID = paste0(seqnames,':',start,'-',end,strand))
+
+gcirc <- circFeature(files=CIRI.files,circ.method='CIRI',
+                  gene,gexon,gintron,galu,gsine,DARNED,RADAR) %>%
+  as.data.frame() %>%
+  dplyr::select(c(1:5,9:12,92,93)) %>%
+  mutate(ID = paste0(seqnames,':',start,'-',end,strand),
+         de = factor(if_else(ID%in%de_data$ID, de_data$de[match(ID,de_data$ID)], 'no change'))) %>%
+  pivot_longer(., cols = c('aluscore', 'SINEscore', 'atoienrichintron', 'atoienrichalu'), names_to = 'genomeAnnot', values_to = 'score') 
+
+my_comparisons <- list(c('downregulated','no change'),c('downregulated','upregulated'),c('no change','upregulated'))
+
+box_plt <- ggplot(gcirc, aes(x=de, y=log2(score+1), fill=de)) + 
+  geom_boxplot()+
+  facet_wrap(~genomeAnnot)+
+  labs(x = '', y = 'log2(score+1)') +
+  theme_bw() +
+  theme(legend.position='none')+
+  stat_compare_means(comparisons = my_comparisons)+ 
+  stat_compare_means(method = 'anova', label.y = 18)
+
+pdf(here('Fig5','5a.pdf'))
+box_plt
+dev.off()
+```
+
+quantification and DGE of linear transcripts 
+
+```{r lin_quant_de, warning=FALSE, message=FALSE}
+bam.files <- list.files(path=here('bam_files'), pattern = '.bam$', full.names = T)
+counts <- featureCounts(bam.files, 
+                        annot.ext = here('circ_seqs','gencode_v30lift37.gtf'), 
+                        isGTFAnnotationFile = T, 
+                        useMetaFeatures = T, 
+                        genome = here('circ_seqs', 'GRCh37.primary_assembly.genome.fa'),
+                        isPairedEnd = T, 
+                        nthreads = 12, 
+                        countMultiMappingReads = F)
+count_table <- data.frame(counts$counts) %>%
+  set_colnames(c('hb01','hb02','hb03','hb04','hb05','hb06','hb07','hb08','hb09','hb10',
+                 'hb11','hb12','hb13','hb14','hb15','hb16','hb17','hb18','P01','P02',
+                 'P03','P04','P05','P06','P07','P08','P09','P10','P11','P12',
+                 'P13','P14','P15','P16','P17','P18','P19','P20','P21','P22',
+                 'P23','R01','R02','R03')) %>%
+  rownames_to_column('ID') %>%
+  mutate(ID = gsub('\\..{1,}','',ID))
+
+fwrite(count_table, here('linear','count_table_brain_and_GBM.tsv'), sep = '\t')
+
+de_table <- count_table %>%
+  distinct(ID, .keep_all = T) %>%
+  column_to_rownames('ID')
+group <- factor(c(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2))
+de <- DGEList(counts=de_table,group=group)
+keep <- filterByExpr(de)
+de <- de[keep,keep.lib.sizes=FALSE]
+de <- calcNormFactors(de)
+design <- model.matrix(~group)
+de <- estimateDisp(de,design)
+fit <- glmQLFit(de, design)
+qlf.2vs1 <- glmQLFTest(fit, coef=2)
+
+results <- data.frame(topTags(qlf.2vs1, n= Inf, p.value = 0.01)) %>%
+  rownames_to_column('ENSEMBL') 
+symbol <- bitr(results$ENSEMBL, fromType='ENSEMBL', toType='SYMBOL', OrgDb='org.Hs.eg.db')
+results$SYMBOL <- symbol$SYMBOL[match(results$ENSEMBL, symbol$ENSEMBL)]
+fwrite(results, here('dgeRes','hb_vs_gbm_linear.tsv'), sep = '\t')
+```
+
+retrieving TMM count matrix
+
+```{r tmm_counts, warning=FALSE, message=FALSE}
+norm_factors <- as_tibble(ddply(de$samples, 'norm.factors')) %>%
+  mutate(Sample = rownames(de$samples)) %>%
+  dplyr::select(c(4,3)) %>%
+  deframe()
+TMM_norm_counts <- sweep(de_table, MARGIN = 2, norm_factors, `*`) %>%
+  rownames_to_column('ENSEMBL') %>%
+  mutate(SYMBOL = symbol$SYMBOL[match(ENSEMBL, symbol$ENSEMBL)]) %>%
+  dplyr::select(c(1,46,2:45))
+fwrite(TMM_norm_counts, here('linear','tmm_counts_linear.tsv'), sep = '\t')
+```
+
+de RBP analysis and k-mer enrichment (Fig 5b-d)
+
+```{r RBP, warning=FALSE, message=FALSE}
+rbp_list <- read_xlsx(here('RBP','table_2_Steffie.xlsx'), sheet = 2)
+de_rbps <- results %>%
+  filter(ENSEMBL%in%rbp_list$`gene id`)
+de_circs <- fread(here('dgeRes','GBMvsBrainDGEres.tsv')) %>%
+  mutate(ID = paste0(seqnames,':',start,'-',end))
+circ_seqs <- readDNAStringSet(here('circ_seqs','GBM_and_brain_all.fa'))
+gbm_circs <- rbind(fread(here('circs_list','GBM_prim_circs.tsv')),
+                         fread(here('circs_list','GBM_rec_circs.tsv'))) %>%
+  mutate(circRNA_ID = gsub('\\|','-',circRNA_ID)) %>%
+  distinct(circRNA_ID) %>%
+  deframe()
+de_circ_seqs <- circ_seqs %>%
+  .[names(.)%in%de_circs$ID]
+non_de_circ_seqs <-  circ_seqs %>%
+  .[!names(.)%in%de_circs$ID & names(.)%in%gbm_circs]
+  
+kmers <- kmer_compare(de_circ_seqs, non_de_circ_seqs, 6)
+enriched_kmers <- kmers %>%  
+  filter(log2FC > 0 & p_adj < 0.05) %>%
+  arrange(desc(log2FC)) %>%
+  dplyr::select('kmer') %>%
+  deframe()
+ENCODE_motifs <- estimate_motif_from_kmer(enriched_kmers, 'CISBPRNA_hs') %>%
+  filter(p_adj < 0.05) %>%
+  mutate(RBP = gsub('M.*_0.*_','', motif)) %>%
+  filter(RBP%in%de_rbps$SYMBOL) %>%
+  arrange(desc(log2FC))
+RBNS_motifs <- estimate_motif_from_kmer(enriched_kmers, 'RBNS') %>%
+  filter(p_adj < 0.05) %>%
+  mutate(RBP = gsub('_m.*$','', motif)) %>%
+  filter(RBP%in%de_rbps$SYMBOL) %>%
+  arrange(desc(log2FC))
+
+TMM_norm_counts %>%
+  filter(SYMBOL%in%ENCODE_motifs$RBP | SYMBOL%in%RBNS_motifs$RBP) %>%
+  fwrite(here('RBP','selected_RBPs_tmm.tsv'), sep = '\t')
+
+rbps_tmm <- TMM_norm_counts %>%
+  filter(SYMBOL%in%ENCODE_motifs$RBP | SYMBOL%in%RBNS_motifs$RBP) %>%
+  pivot_longer(cols = c(3:46), names_to = 'Sample', values_to = 'tmm_counts') %>%
+  mutate(Source = factor(if_else(startsWith(Sample, 'hb'), 'healthy brain \ncontrol', 'GBM'), levels = c('healthy brain \ncontrol', 'GBM'))) %>%
+  mutate(log10TMM = log10(tmm_counts))
+
+vln_plt <- ggviolin(rbps_tmm, x = 'Source', y = 'log10TMM', 
+                    color = 'Source', 
+                    facet.by = 'SYMBOL', 
+                    add = 'boxplot', 
+                    ylab = 'log10(TMM counts)') +
+  rremove('xlab') +
+  rremove('legend') +
+  ylim(0,4) +
+  theme(axis.text.x=element_text(size=10)) +
+  theme(axis.text.y=element_text(size=12)) +
+  theme(axis.title.y=element_text(size=18)) +
+  theme(strip.text.x = element_text(size = 16))
+
+pdf(here('Fig5','5b.pdf'))
+vln_plt
+dev.off()
+
+col <- colorRampPalette(c("red", "white", "blue"))(256)
+
+ENCODE_htmp <- pheatmap(ENCODE_motifs %>%
+           column_to_rownames('motif') %>%
+           dplyr::select(c(4,3)) %>%
+           dplyr::rename(c('all_circs_freq' = 'all_freq', 'dge_circs_freq' = 'input_freq')) %>%
+           as.matrix(),
+         color = col,
+         scale="row", 
+         cellheight = 10,
+         cellwidth = 12,
+         cluster_cols = F,
+         cluster_rows = F,
+         main = 'ENCODE RBP motifs enrichment \nin differentially expresseed circRNA')
+
+pdf(here('Fig5','5c.pdf'))
+ENCODE_htmp
+dev.off()    
+
+RBNS_htmp <- pheatmap(RBNS_motifs %>%
+           column_to_rownames('motif') %>%
+           dplyr::select(c(4,3)) %>%
+           dplyr::rename(c('all_circs_freq' = 'all_freq', 'dge_circs_freq' = 'input_freq')) %>%
+           as.matrix(),
+         color = col,
+         scale="row", 
+         cellheight = 10,
+         cellwidth = 12,
+         cluster_cols = F,
+         cluster_rows = F,
+         main = 'RBNS RBP motifs enrichment \nin differentially expresseed circRNA')
+
+pdf(here('Fig5','5d.pdf'))
+RBNS_htmp
+dev.off() 
+```

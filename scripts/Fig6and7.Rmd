@@ -1,0 +1,252 @@
+---
+title: "Fig6"
+author: "Marcin Sajek"
+date: "6/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE, warning=FALSE, message=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(broom)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(edgeR)
+library(ggpubr)
+library(here)
+```
+
+TMM normalized count matrix for circRNAs
+
+```{r tmm_circ, warning=FALSE, message=FALSE}
+CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$', full.names = T)
+all_circs <- fread(here('circs_list','all_hb_and_GBM_circs.tsv')) %>%
+  mutate(gene_id = gsub('\\..{1,}','',gene_id))
+symbol <- bitr(all_circs$gene_id, fromType='ENSEMBL', toType='SYMBOL', OrgDb='org.Hs.eg.db')
+jct_count_matrix <- all_circs %>%
+  dplyr::select('circRNA_ID') %>%
+  as.data.frame()
+non_jct_count_matrix <- all_circs %>%
+  dplyr::select('circRNA_ID') %>%
+  as.data.frame()
+for(i in 1:length(CIRI.files)) {
+  tmp <- fread(CIRI.files[i])
+  jct_count_matrix[,i+1] <- tmp$`#junction_reads`[match(jct_count_matrix$circRNA_ID,tmp$circRNA_ID)]
+  non_jct_count_matrix[,i+1] <- tmp$`#non_junction_reads`[match(non_jct_count_matrix$circRNA_ID,tmp$circRNA_ID)]
+}
+
+colnames <- list.files(path = here('ciri_res'), pattern = 'circ.txt$') %>%
+  gsub('.sam.circ.txt','',.)
+
+jct_count_matrix_final <- jct_count_matrix %>%
+  replace(., is.na(.), 0) %>%
+  column_to_rownames('circRNA_ID') %>%
+  set_colnames(colnames)
+fwrite(jct_count_matrix_final, here('counts','GBM_and_brain_raw_CIRI_junction_counts.tsv'), sep = '\t')
+non_jct_count_matrix_final <- non_jct_count_matrix %>%
+  replace(., is.na(.), 0) %>%
+  column_to_rownames('circRNA_ID') %>%
+  set_colnames(colnames)
+
+tmp_count_matrix <- rbind(jct_count_matrix_final, non_jct_count_matrix_final)
+group <- factor(c(1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2))
+de <- DGEList(counts=tmp_count_matrix,group=group)
+keep <- filterByExpr(de)
+de <- de[keep,keep.lib.sizes=FALSE]
+de <- calcNormFactors(de)
+norm_factors <- as_tibble(ddply(de$samples, 'norm.factors')) %>%
+  mutate(Sample = rownames(de$samples)) %>%
+  dplyr::select(c(4,3)) %>%
+  deframe()
+TMM_norm_counts <- sweep(jct_count_matrix_final, MARGIN = 2, norm_factors, `*`) %>%
+  rownames_to_column('ID') %>%
+  mutate(ENSEMBL = all_circs$gene_id[match(ID,all_circs$circRNA_ID)],
+    SYMBOL = symbol$SYMBOL[match(ENSEMBL, symbol$ENSEMBL)]) %>%
+  dplyr::select(c(1,46,47,2:45))
+fwrite(TMM_norm_counts, here('counts','GBM_and_brain_all_TMM_norm_junction_counts.tsv'), sep = '\t')
+```
+
+correlation analysis (Fig 6a-b)
+
+```{r cor, warning=FALSE, message=FALSE}
+de_circs <- fread(here('dgeRes','GBMvsBrainDGEres.tsv')) %>%
+  mutate(ID = paste0(seqnames,':',start,'|',end))
+TMM_norm_counts_filtered <- TMM_norm_counts %>%
+  filter(ID%in%de_circs$ID)
+circs4cor <- TMM_norm_counts_filtered %>%
+  dplyr::select(-c(2,3:21)) %>%
+  column_to_rownames('ID') %>%
+  t() %>%
+  as.data.frame() %>%
+  set_colnames(TMM_norm_counts_filtered$ID) %>%
+  rownames_to_column('sample')
+
+rbps <- fread(here('RBP','selected_RBPs_tmm.tsv')) 
+rbps4cor <- rbps %>%
+  dplyr::select(-c(1,3:20)) %>%
+  column_to_rownames('SYMBOL') %>%
+  t() %>%
+  as.data.frame() %>%
+  set_colnames(rbps$SYMBOL) %>%
+  rownames_to_column('sample')
+
+cor_df_sp <- data.table(estimate=numeric(), p.value=numeric(), rbp=factor(), circRNA=character())
+
+stopifnot(all(circs4cor$sample == rbps4cor$sample))
+
+for(i in (2:ncol(circs4cor))){
+  for(j in (2:ncol(rbps4cor))){
+    cor_sp_tmp <- cor.test(rbps4cor[,j],circs4cor[,i], method = 'spearman') %>%
+      tidy() %>%
+      dplyr::select(c(1,3)) %>%
+      mutate(rbp = colnames(rbps4cor)[j]) %>%
+      mutate(circRNA = colnames(circs4cor)[i])
+    cor_df_sp <- rbind(cor_df_sp, cor_sp_tmp) 
+  }
+}
+
+cor_df_sp_sign <- cor_df_sp %>%
+  filter(p.value < 0.05) %>%
+  arrange(estimate) %>%
+  mutate(direction = if_else(estimate > 0, 1,0), rbp = factor(rbp, levels = c('CPEB3','ELAVL2','ELAVL3','ELAVL4','CPEB1','RBM24','ZFP36','PTBP1','RBM47','SF3B4','RBMS2','RC3H1','ZNF326','TIA1','RBM41','FUBP3','PUF60', 'TRA2A','HNRNPD')))
+
+direction <- cor_df_sp_sign %>% 
+  group_by(rbp) %>% 
+  dplyr::summarise(dir = sum(direction))
+
+occur <- dplyr::count(cor_df_sp_sign, rbp) %>%
+  as_tibble() %>%
+  arrange(desc(n)) %>%
+  mutate(positive = direction$dir[match(rbp, direction$rbp)], negative = n-positive) %>%
+  pivot_longer(cols = c(3,4), names_to = 'correlation', values_to = 'cor_dir_cnt') %>%
+  mutate(correlation = factor(correlation, levels = c('positive', 'negative')))
+  
+occur_plt <- ggbarplot(occur, x = 'rbp', y = 'cor_dir_cnt', 
+                       orientation = "horiz",
+                       ylab = 'n significantly correlated circRNA',
+                       lab.vjust = 0.5, 
+                       lab.hjust = -0.15, fill = 'correlation') +
+  rremove("ylab") +
+  theme(axis.title.x=element_text(size=15))
+
+pdf(here('Fig6','6a.pdf'))
+occur_plt
+dev.off()
+
+circ_parental_genes_cor <- cor_df_sp_sign %>%
+  mutate(ENSEMBL = TMM_norm_counts_filtered$ENSEMBL_ID[match(circRNA,TMM_norm_counts_filtered$ID)], gene_name = TMM_norm_counts_filtered$SYMBOL[match(circRNA,TMM_norm_counts_filtered$ID)]) %>%
+  dplyr::select(-c(2,4)) %>%
+  mutate(group_var = paste0(rbp,'_',gene_name)) %>%
+  group_by(group_var) %>%
+  summarise(mean_estimate = mean(estimate)) %>%
+  separate(group_var, into = c('rbp', 'gene_name'), sep = '_') %>%
+  mutate(direction = if_else(mean_estimate > 0, 1, 0)) %>%
+  group_by(rbp) %>%
+  mutate(sum_dir = sum(direction))
+
+circ_parental_genes_cor_occur <- dplyr::count(circ_parental_genes_cor, rbp) %>%
+  as_tibble() %>%
+  arrange(desc(n)) %>%
+  mutate(positive = circ_parental_genes_cor$sum_dir[match(rbp, circ_parental_genes_cor$rbp)], negative = n-positive) %>%
+  pivot_longer(cols = c(3,4), names_to = 'correlation', values_to = 'cor_dir_cnt') %>%
+  mutate(correlation = factor(correlation, levels = c('positive', 'negative')))
+  
+occur_plt_parental_genes <- ggbarplot(circ_parental_genes_cor_occur, x = 'rbp', y = 'cor_dir_cnt', 
+                       orientation = "horiz",
+                       ylab = 'n significantly correlated circRNA parental genes',
+                       lab.vjust = 0.5, 
+                       lab.hjust = -0.15, fill = 'correlation') +
+  rremove("ylab") +
+  theme(axis.title.x=element_text(size=15))
+
+pdf(here('Fig6','6b.pdf'))
+occur_plt_parental_genes
+dev.off()
+
+cor_bxplt <- ggboxplot(cor_df_sp_sign, x = 'rbp', y = 'estimate',
+                       orientation = "horiz", 
+                       ylab = 'Spearman rho') +
+  rremove("ylab") +
+  theme(axis.title.x=element_text(size=15))
+
+pdf(here('Fig6','6c.pdf'))
+cor_bxplt
+dev.off()
+```
+
+parental genes correlation with RBP (Fig 7)
+
+```{r parental_cor, warning=FALSE, message=FALSE}
+parental_gene_filtered <- fread(here('linear','tmm_counts_linear.tsv')) %>%
+  filter(SYMBOL %in% circ_parental_genes_cor$gene_name) 
+parental_genes_for_cor <- parental_gene_filtered %>%
+  dplyr::select(-c(1:20)) %>%
+  t() %>%
+  as.data.frame() %>%
+  set_colnames(parental_gene_filtered$SYMBOL) %>%
+  rownames_to_column('Sample') %>%
+  arrange(Sample)
+
+cor_df_sp_parental <- data.table(estimate=numeric(), p.value=numeric(), rbp=factor(), gene=character())
+
+stopifnot(all(parental_genes_for_cor$Sample == rbps4cor$Sample))
+
+for(i in (2:ncol(parental_genes_for_cor))){
+  for(j in (2:ncol(rbps4cor))){
+    cor_sp_tmp <- cor.test(rbps4cor[,j],parental_genes_for_cor[,i], method = 'spearman') %>%
+      tidy() %>%
+      dplyr::select(c(1,3)) %>%
+      mutate(rbp = colnames(rbps4cor)[j]) %>%
+      mutate(gene = colnames(parental_genes_for_cor)[i])
+    cor_df_sp_parental <- rbind(cor_df_sp_parental, cor_sp_tmp) 
+  }
+}
+
+colnames(cor_df_sp_parental) <- c('estimate_linear', 'p_value_linear', 'rbp', 'gene_name')
+
+final_cor_table <- cor_df_sp_sign %>%
+  mutate(ENSEMBL = TMM_norm_counts_filtered$ENSEMBL[match(circRNA,TMM_norm_counts_filtered$ID)], gene_name = TMM_norm_counts_filtered$SYMBOL[match(circRNA,TMM_norm_counts_filtered$ID)]) %>%
+  dplyr::select(-c(5)) %>%
+  left_join(.,cor_df_sp_parental) %>%
+  replace_na(list(estimate_linear = 0, p_value_linear = 1)) %>%
+  mutate(correlation = if_else(p_value_linear > 0.05, 'no correlation', if_else(estimate > 0 & estimate_linear > 0 | estimate < 0 & estimate_linear < 0, 'the same direction', 'opposite direction'))) %>%
+  mutate(correlation = factor(correlation)) %>%
+  dplyr::select(c(3,4,5,6,1,2,7,8,9)) %>%
+  set_colnames(c('RBP', 'circRNA', 'ENSEMBL', 'SYMBOL', 'circ_estimate', 'circ_p_value', 'linear_estimate', 'linear_p_value', 'correlation_direction')) %>%
+  arrange(RBP,ENSEMBL,circ_estimate) %>%
+  filter(is.na(ENSEMBL) == F)
+
+bar_plt_table <- final_cor_table %>%
+  dplyr::select(1,9) %>%
+  mutate(grouping_var = paste0(RBP,'_', correlation_direction)) %>%
+  group_by(grouping_var) %>%
+  summarise(counts = n()) %>%
+  separate(., col = 'grouping_var', into = c('RBP', 'correlation_direction'), sep = '_') %>%
+  mutate(correlation_direction = factor(correlation_direction))
+  
+
+cor_bar_plt <- ggbarplot(bar_plt_table, x = 'correlation_direction', y = 'counts',
+                         fill = 'correlation_direction', 
+                         color = 'correlation_direction', 
+                         palette = 'Paired',
+                         ylab = 'circRNA-RBP correlation vs linear transcript-RBP correlation',
+                         facet.by = 'RBP', 
+                         label = T,
+                         position = position_dodge(0.9)) +
+  rremove('xlab')+
+  rremove('legend')+
+  rotate_x_text(90)
+
+cor_bar_plt <- ggpar(cor_bar_plt, ylim = c(0,600))
+
+pdf(here('Fig7','7.pdf'))
+cor_bar_plt
+dev.off()
+```
