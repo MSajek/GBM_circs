@@ -2,8 +2,8 @@
 circRNA analysis in glioblastoma multiforme
 
 This repo does not contain large files. To obtain genome reference, gtf and circRNA sequences you have to:
--extract all .7z files
--run code in lines 63-76 from Fig1.Rmd
+1/extract all .7z files
+2/run code in lines 63-76 from Fig1.Rmd
 
 To obtain miRNA binding sites you have to obtain circRNA sequences (as mentioned in previous line) and then run:
 
