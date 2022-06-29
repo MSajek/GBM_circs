@@ -1,5 +1,5 @@
 ---
-title: "Fig6"
+title: "Fig6and7"
 author: "Marcin Sajek"
 date: "6/27/2022"
 output: html_document
