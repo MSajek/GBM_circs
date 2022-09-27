@@ -1,0 +1,175 @@
+---
+title: "Fig8"
+author: "Marcin Sajek"
+date: "7/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(Biostrings)
+library(ggpubr)
+library(here)
+```
+
+predicting miRNA binding sites using targetscan (this analysis takes a few days for > 20000 circRNA sequences)
+
+```{r target_scan, warning=FALSE, message=FALSE}
+#system("sed 's/>//g' < ./circ_seqs/GBM_and_brain_all.fa | sed 's/T/U/g' | sed 'N;s/\n/\t9606\t/' > ./miRNA/GBM_and_brain_all.txt")
+#system("perl ./miRNA/targetscan_70.pl ./miRNA/humanMirsTargetscan.tsv ./miRNA/GBM_and_brain_all.txt ./miRNA/miR_binding_sites.txt")
+```
+
+filtering miRNAs and DGE circs
+
+```{r filtering, warning=FALSE, message=FALSE}
+dge_circs <- fread(here('dgeRes','GBMvsBrainDGEres.tsv')) %>%
+  mutate(ID = paste0(seqnames,':',start,'-',end))
+mir_down <- fread(here('miRNA','miRNAdownKasiasPaper.csv'))
+mir_up <- fread(here('miRNA','miRNAupKasiasPaper.csv'))
+mirBS <- fread(here('miRNA','GBM_and_brain_all_miR_BS.tsv')) 
+mirBS_filtered <- mirBS %>%
+  dplyr::select(c(1,2)) %>%
+  group_by(a_Gene_ID) %>%
+  mutate(bs_count = n(),
+         lfc = dge_circs$lfc[match(a_Gene_ID,dge_circs$ID)],
+         dge = factor(case_when(a_Gene_ID%in%dge_circs$ID & lfc > 0 ~ 'upregulated',
+                         a_Gene_ID%in%dge_circs$ID & lfc < 0 ~ 'downregulated',
+                         T ~ 'non-significant change'), levels = c('non-significant change', 'downregulated','upregulated')),
+         log2_counts = log2(bs_count))
+  
+  
+my_comparisons <- list( c("downregulated", "non-significant change"), c("non-significant change", "upregulated"), c("downregulated", "upregulated") )
+
+box_plt_all <- ggboxplot(mirBS_filtered, x='dge', y='log2_counts', fill='dge') + 
+  stat_compare_means(comparisons = my_comparisons, label.y = c(17, 19, 21), method = "t.test")+
+  stat_compare_means(label.y = 23, method = 'anova') + 
+  labs(x = '',
+       y = 'log2(number of predicted miRNA binding sites)') +
+  ylim(0,25)+
+  theme_bw() + 
+  theme(legend.position = "none") 
+
+pdf(here('Fig8','8a.pdf'))
+box_plt_all
+dev.off()
+
+box_plt_down <- ggboxplot(subset(mirBS_filtered, miRNA_family_ID%in%mir_down$V1), x='dge', y='log2_counts', fill='dge') +
+  stat_compare_means(comparisons = my_comparisons, label.y = c(17, 19, 21), method = "t.test")+
+  stat_compare_means(label.y = 23, method = 'anova') + 
+  labs(x = '',
+       y = 'log2(number of predicted downregulated miRNA binding sites)') +
+  ylim(0,25)+
+  theme_bw() + 
+  theme(legend.position = "none")
+
+pdf(here('Fig8','8b.pdf'))
+box_plt_down
+dev.off()
+
+box_plt_up <- ggboxplot(subset(mirBS_filtered, miRNA_family_ID%in%mir_up$V1), x='dge', y='log2_counts', fill='dge') +
+  stat_compare_means(comparisons = my_comparisons, label.y = c(17, 19, 21), method = "t.test")+
+  stat_compare_means(label.y = 23, method = 'anova') + 
+  labs(x = '',
+       y = 'log2(number of predicted upregulated miRNA binding sites)') +
+  ylim(0,25)+
+  theme_bw() + 
+  theme(legend.position = "none")
+
+pdf(here('Fig8','8c.pdf'))
+box_plt_up
+dev.off()
+```
+
+correlation with number of binding sites
+
+```{r cor, warning=FALSE, message=FALSE}
+cor_miR_down <- mirBS_filtered %>%
+  filter(miRNA_family_ID%in%mir_down$V1 & is.na(lfc) == F) %>%
+  ungroup() %>%
+  mutate(grouping_var = paste0(a_Gene_ID,'_',miRNA_family_ID)) %>%
+  group_by(grouping_var) %>%
+  mutate(counts = n()) %>%
+  filter(counts > 2) %>%
+  ungroup() %>%
+  group_by(miRNA_family_ID) 
+
+scat_plot_down <- ggscatter(cor_miR_down, x='counts', y='lfc', size = 0.5)+
+  facet_wrap(~miRNA_family_ID, ncol = 6)+
+  stat_cor(method = "spearman", label.x = 15, label.y = 6, label.sep = "\n", size = 6.0)+
+  labs(x = 'number of miRNA binding sites',
+       y = 'log2FoldChange') +
+  theme_bw()+
+  theme(axis.title.x=element_text(size=22))+
+  theme(axis.title.y=element_text(size=22))+
+  theme(strip.text.x = element_text(size = 20))
+
+pdf(here('Fig8','8e.pdf'), width = 12, height = 9)
+scat_plot_down
+dev.off()
+
+cor_miR_up <- mirBS_filtered %>%
+  filter(miRNA_family_ID%in%mir_up$V1 & is.na(lfc) == F) %>%
+  ungroup() %>%
+  mutate(grouping_var = paste0(a_Gene_ID,'_',miRNA_family_ID)) %>%
+  group_by(grouping_var) %>%
+  mutate(counts = n()) %>%
+  filter(counts > 2) %>%
+  ungroup() %>%
+  group_by(miRNA_family_ID) 
+
+scat_plot_up <- ggscatter(cor_miR_up, x='counts', y='lfc', size = 0.5)+
+  facet_wrap(~miRNA_family_ID, ncol = 6)+
+  stat_cor(method = "spearman", label.x = 15, label.y = 6, label.sep = "\n", size = 6.0)+
+  labs(x = 'number of miRNA binding sites',
+       y = 'log2FoldChange') +
+  theme_bw()+
+  theme(axis.title.x=element_text(size=22))+
+  theme(axis.title.y=element_text(size=22))+
+  theme(strip.text.x = element_text(size = 20))
+
+pdf(here('Fig8','8f.pdf'), width = 12, height = 9)
+scat_plot_up
+dev.off()
+```
+
+PWMs for significantly correlated miRs
+
+```{r PWM, warning=FALSE, message=FALSE}
+sign_cor_miRs <- c('miR-137','miR-139-5p','miR-323-3p','miR-330-3p','miR-338-3p','miR-342-3p','miR-769-5p','miR-1225-5p','miR-1246','miR-1290','miR-142-5p','miR-188-5p','miR-193a-5p','miR-483-5p','miR-513a-5p','miR-542-3p','miR-630')
+dge_circ_seqs <- readDNAStringSet(here('circ_seqs','GBM_and_brain_all.fa')) %>%
+  .[names(.)%in%dge_circs$ID]
+sign_cor_table <- mirBS %>%
+  filter(a_Gene_ID%in%dge_circs$ID & miRNA_family_ID%in%sign_cor_miRs) %>%
+  dplyr::select(-c(3,6:8,10:14)) %>%
+  mutate(len = nchar(as.character(dge_circ_seqs[a_Gene_ID]))) %>%
+  filter(MSA_start+7 <= len) %>%
+  mutate(seq = if_else(Site_type == '7mer-1a', gsub('T','U',as.character(subseq(dge_circ_seqs[a_Gene_ID], start = MSA_start-1, end = MSA_start+6))),gsub('T','U',as.character(subseq(dge_circ_seqs[a_Gene_ID], start = MSA_start, end = MSA_start+7)))))
+
+motifs_lst <- list()
+for(i in 1:(length(sign_cor_miRs))) {
+  tmp <- consensusMatrix(sign_cor_table %>%
+                        filter(miRNA_family_ID == sign_cor_miRs[i]) %>%
+                        dplyr::select('seq') %>%
+                        deframe(),
+                        as.prob = T)
+  lst_tmp <- list(tmp)
+  names(lst_tmp) <- sign_cor_miRs[i]
+  motifs_lst <- append(motifs_lst, lst_tmp)
+}
+weblogo_mirbs <- ggseqlogo(motifs_lst, ncol=6, scales = 'free_x') +
+  rremove('x.text')+
+  theme(axis.title.y=element_text(size=18)) +
+  theme(axis.text.y=element_text(size=13)) +
+  theme(strip.text.x = element_text(size = 13))
+
+pdf(here('Fig8','binding_sites_weblogo1.pdf'), width = 8, height = 6)
+weblogo_mirbs
+dev.off()
+```

@@ -41,6 +41,8 @@ hb_circs <- do.call(rbind,
   distinct(circRNA_ID, .keep_all = T) %>%
   mutate(dataset = 'healthy brain control')
 
+fwrite(hb_circs, here('circs_list','healthy_brain_circs.tsv'), sep = '\t')
+
 gbm_prim_circs <- do.call(rbind,
           lapply(list.files(path = here('ciri_res'), pattern = 'circ.txt$', full.names = T)[19:41], fread)) %>%
   dplyr::select(c(1:4,9)) %>%
@@ -79,7 +81,85 @@ circSeqExt(here('circ_seqs','GBM_and_brain_all_genomic_seq.fa'), here('circ_seqs
 circs annotation (Fig 1a-d)
 
 ```{r annotation, warning=FALSE, message=FALSE}
-#waiting for tables from Konrad
+all_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end)) %>%
+  na.omit() %>%
+  dplyr::select('ID') %>%
+  fwrite(here('annotation','circMine_coords_GBM_and_brain.tsv'), sep = '\t')
+
+circMine_annot <- fread(here('annotation', 'circMine_annot_hb_and_GBM.csv'))
+
+all_circs_4annot <- all_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end),
+         annotation = factor(if_else(ID%in%circMine_annot$Hg19, 'Annotated circRNAs','Novel circRNAs')))
+
+pie_all <- ggplot(plyr::count(all_circs_4annot$annotation), aes(x = '', y = freq, fill = x)) +
+  geom_col(color = 'black') +
+  coord_polar(theta = 'y')+
+  scale_fill_grey() +  
+  theme_pubclean() +
+  theme(axis.text.x=element_blank())+
+  theme(axis.title.x=element_blank())+
+  theme(axis.title.y=element_blank())+
+  rremove('legend.title')
+
+pdf(here('Fig1','1a.pdf'))
+pie_all
+dev.off()
+
+hb_circs_4annot <- hb_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end),
+         annotation = factor(if_else(ID%in%circMine_annot$Hg19, 'Annotated circRNAs','Novel circRNAs')))
+
+pie_hb <- ggplot(plyr::count(hb_circs_4annot$annotation), aes(x = '', y = freq, fill = x)) +
+  geom_col(color = 'black') +
+  coord_polar(theta = 'y')+
+  scale_fill_grey() +  
+  theme_pubclean() +
+  theme(axis.text.x=element_blank())+
+  theme(axis.title.x=element_blank())+
+  theme(axis.title.y=element_blank())+
+  rremove('legend.title')
+
+pdf(here('Fig1','1b.pdf'))
+pie_hb
+dev.off()
+
+prim_circs_4annot <- gbm_prim_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end),
+         annotation = factor(if_else(ID%in%circMine_annot$Hg19, 'Annotated circRNAs','Novel circRNAs')))
+
+pie_prim <- ggplot(plyr::count(prim_circs_4annot$annotation), aes(x = '', y = freq, fill = x)) +
+  geom_col(color = 'black') +
+  coord_polar(theta = 'y')+
+  scale_fill_grey() +  
+  theme_pubclean() +
+  theme(axis.text.x=element_blank())+
+  theme(axis.title.x=element_blank())+
+  theme(axis.title.y=element_blank())+
+  rremove('legend.title')
+
+pdf(here('Fig1','1c.pdf'))
+pie_prim
+dev.off()
+
+rec_circs_4annot <- gbm_rec_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end),
+         annotation = factor(if_else(ID%in%circMine_annot$Hg19, 'Annotated circRNAs','Novel circRNAs')))
+
+pie_rec <- ggplot(plyr::count(rec_circs_4annot$annotation), aes(x = '', y = freq, fill = x)) +
+  geom_col(color = 'black') +
+  coord_polar(theta = 'y')+
+  scale_fill_grey() +  
+  theme_pubclean() +
+  theme(axis.text.x=element_blank())+
+  theme(axis.title.x=element_blank())+
+  theme(axis.title.y=element_blank())+
+  rremove('legend.title')
+
+pdf(here('Fig1','1d.pdf'))
+pie_rec
+dev.off()
 ```
 
 venn diagram (Fig 1e)
@@ -200,5 +280,35 @@ dev.off()
 
 pdf((here('Fig1','1i.pdf')))
 rec_len_hist
+dev.off()
+```
+
+circRNA on chromosomes (suppl fig)
+
+```{r chrom, warning=FALSE, message=FALSE}
+chrom_cnt_table <- rbind(hb_circs, gbm_prim_circs, gbm_rec_circs) %>%
+  mutate(chr = factor(if_else(nchar(chr) == 4 & !chr == 'chrX' & !chr == 'chrY', gsub('chr','chr0',chr), chr)),
+         grouping_var = paste0(chr,'_',dataset),
+         dataset = factor(dataset, levels = c('healthy brain control', 'GBM primary', 'GBM recurrent'))) %>%
+  group_by(grouping_var) %>%
+  mutate(chr_counts = n()) %>%
+  distinct(grouping_var, .keep_all = T) %>%
+  ungroup() %>%
+  group_by(dataset) %>%
+  mutate(chr_perc = chr_counts/sum(chr_counts))
+
+chr_bar_plt <- ggbarplot(chrom_cnt_table, x = 'chr', y = 'chr_perc',
+                         col='black', fill='blue', alpha = .2,
+                         facet.by = 'dataset')+ 
+  scale_y_continuous(labels = scales::percent)+
+  theme_bw()+
+  rremove('xlab')+
+  rremove('ylab')+
+  theme(axis.text.x=element_text(size=14,angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(strip.text.x = element_text(size = 20))
+
+pdf(here('suppl_figs','chr_hb_and_gbm.pdf'), width = 12, height = 8)
+chr_bar_plt
 dev.off()
 ```

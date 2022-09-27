@@ -24,6 +24,7 @@ library(clusterProfiler)
 library(org.Hs.eg.db)
 library(FeatureReachR)
 library(ggpubr)
+library(ggseqlogo)
 library(pheatmap)
 library(here)
 ```
@@ -148,27 +149,51 @@ gbm_circs <- rbind(fread(here('circs_list','GBM_prim_circs.tsv')),
   mutate(circRNA_ID = gsub('\\|','-',circRNA_ID)) %>%
   distinct(circRNA_ID) %>%
   deframe()
-de_circ_seqs <- circ_seqs %>%
-  .[names(.)%in%de_circs$ID]
+de_down <- de_circs %>%
+  filter(lfc < 0)
+de_up <- de_circs %>%
+  filter(lfc > 0)
+de_circ_seqs_down <- circ_seqs %>%
+  .[names(.)%in%de_down$ID]
+de_circ_seqs_up <- circ_seqs %>%
+  .[names(.)%in%de_up$ID]
 non_de_circ_seqs <-  circ_seqs %>%
-  .[!names(.)%in%de_circs$ID & names(.)%in%gbm_circs]
+  .[names(.)%in%gbm_circs & !names(.)%in%de_circs$ID]
   
-kmers <- kmer_compare(de_circ_seqs, non_de_circ_seqs, 6)
-enriched_kmers <- kmers %>%  
+kmers_down <- kmer_compare(de_circ_seqs_down, non_de_circ_seqs, 6)
+enriched_kmers_down <- kmers_down %>%  
   filter(log2FC > 0 & p_adj < 0.05) %>%
   arrange(desc(log2FC)) %>%
   dplyr::select('kmer') %>%
   deframe()
-ENCODE_motifs <- estimate_motif_from_kmer(enriched_kmers, 'CISBPRNA_hs') %>%
+ENCODE_motifs_down <- estimate_motif_from_kmer(enriched_kmers_down, 'CISBPRNA_hs') %>%
   filter(p_adj < 0.05) %>%
   mutate(RBP = gsub('M.*_0.*_','', motif)) %>%
   filter(RBP%in%de_rbps$SYMBOL) %>%
   arrange(desc(log2FC))
-RBNS_motifs <- estimate_motif_from_kmer(enriched_kmers, 'RBNS') %>%
+RBNS_motifs_down <- estimate_motif_from_kmer(enriched_kmers_down, 'RBNS') %>%
   filter(p_adj < 0.05) %>%
   mutate(RBP = gsub('_m.*$','', motif)) %>%
   filter(RBP%in%de_rbps$SYMBOL) %>%
   arrange(desc(log2FC))
+kmers_up <- kmer_compare(de_circ_seqs_up, non_de_circ_seqs, 6)
+enriched_kmers_up <- kmers_up %>%  
+  filter(log2FC > 0 & p_adj < 0.05) %>%
+  arrange(desc(log2FC)) %>%
+  dplyr::select('kmer') %>%
+  deframe()
+ENCODE_motifs_up <- estimate_motif_from_kmer(enriched_kmers_up, 'CISBPRNA_hs') %>%
+  filter(p_adj < 0.05) %>%
+  mutate(RBP = gsub('M.*_0.*_','', motif)) %>%
+  filter(RBP%in%de_rbps$SYMBOL) %>%
+  arrange(desc(log2FC))
+RBNS_motifs_up <- estimate_motif_from_kmer(enriched_kmers_up, 'RBNS') %>%
+  filter(p_adj < 0.05) %>%
+  mutate(RBP = gsub('_m.*$','', motif)) %>%
+  filter(RBP%in%de_rbps$SYMBOL) %>%
+  arrange(desc(log2FC))
+ENCODE_motifs <- rbind(ENCODE_motifs_down,ENCODE_motifs_up)
+RBNS_motifs <- rbind(RBNS_motifs_down,RBNS_motifs_up)
 
 TMM_norm_counts %>%
   filter(SYMBOL%in%ENCODE_motifs$RBP | SYMBOL%in%RBNS_motifs$RBP) %>%
@@ -185,19 +210,20 @@ vln_plt <- ggviolin(rbps_tmm, x = 'Source', y = 'log10TMM',
                     facet.by = 'SYMBOL', 
                     add = 'boxplot', 
                     ylab = 'log10(TMM counts)') +
+  theme_bw() +
   rremove('xlab') +
   rremove('legend') +
   ylim(0,4) +
   theme(axis.text.x=element_text(size=10)) +
   theme(axis.text.y=element_text(size=12)) +
   theme(axis.title.y=element_text(size=18)) +
-  theme(strip.text.x = element_text(size = 16))
+  theme(strip.text.x = element_text(size = 16)) 
 
 pdf(here('Fig5','5b.pdf'))
 vln_plt
 dev.off()
 
-col <- colorRampPalette(c("red", "white", "blue"))(256)
+col <- colorRampPalette(c('blue', 'white', 'red'))(256)
 
 ENCODE_htmp <- pheatmap(ENCODE_motifs %>%
            column_to_rownames('motif') %>%
@@ -205,7 +231,6 @@ ENCODE_htmp <- pheatmap(ENCODE_motifs %>%
            dplyr::rename(c('all_circs_freq' = 'all_freq', 'dge_circs_freq' = 'input_freq')) %>%
            as.matrix(),
          color = col,
-         scale="row", 
          cellheight = 10,
          cellwidth = 12,
          cluster_cols = F,
@@ -222,7 +247,6 @@ RBNS_htmp <- pheatmap(RBNS_motifs %>%
            dplyr::rename(c('all_circs_freq' = 'all_freq', 'dge_circs_freq' = 'input_freq')) %>%
            as.matrix(),
          color = col,
-         scale="row", 
          cellheight = 10,
          cellwidth = 12,
          cluster_cols = F,
@@ -232,4 +256,41 @@ RBNS_htmp <- pheatmap(RBNS_motifs %>%
 pdf(here('Fig5','5d.pdf'))
 RBNS_htmp
 dev.off() 
+```
+
+ENCODE and RBNS weblogos (suppl fig)
+
+```{r weblogos, warning=FALSE, message=FALSE}
+RNA_rows <- c('A','C','G','U')
+encode_vect <- ENCODE_motifs %>%
+  dplyr::arrange(RBP, motif) %>%
+  dplyr::select('motif') %>%
+  deframe()
+encode_list <- CISBPRNA_hs_PWM[encode_vect] %>%
+  lapply(., set_rownames, RNA_rows)
+encode_weblogo <- ggseqlogo(encode_list, ncol=6, scales = 'free_x') +
+  rremove('x.text')+
+  theme(axis.title.y=element_text(size=18)) +
+  theme(axis.text.y=element_text(size=13)) +
+  theme(strip.text.x = element_text(size = 13))
+
+pdf(here('suppl_figs','encode_weblogos.pdf'), width = 12, height = 8)
+encode_weblogo
+dev.off()
+
+rbns_vect <- RBNS_motifs %>%
+  dplyr::arrange(RBP, motif) %>%
+  dplyr::select('motif') %>%
+  deframe()
+rbns_list <- RBNS_PWM[rbns_vect] %>%
+  lapply(., set_rownames, RNA_rows)
+rbns_weblogo <- ggseqlogo(rbns_list, ncol=6, scales = 'free_x') +
+  rremove('x.text')+
+  theme(axis.title.y=element_text(size=18)) +
+  theme(axis.text.y=element_text(size=13)) +
+  theme(strip.text.x = element_text(size = 13))
+
+pdf(here('suppl_figs','rbns_weblogos.pdf'), width = 12, height = 8)
+rbns_weblogo
+dev.off()
 ```

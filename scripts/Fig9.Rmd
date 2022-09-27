@@ -1,0 +1,289 @@
+---
+title: "Fig9"
+author: "Marcin Sajek"
+date: "6/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(circMeta)
+library(Biostrings)
+library(FcircSEC)
+library(ggvenn)
+library(ggpubr)
+library(here)
+```
+
+merging all CIRI files
+
+```{r merging_files, warning=FALSE, message=FALSE}
+all_circs_blood <- do.call(rbind,
+          lapply(list.files(path = here('ciri_res_blood'), pattern = 'circ.txt$', full.names = T), fread)) %>%
+  dplyr::select(c(1:4,9:11)) %>%
+  distinct(circRNA_ID, .keep_all = T)
+
+fwrite(all_circs, here('circs_list','all_blood_circs.tsv'), sep = '\t')
+
+all_circs_blood %>% 
+  dplyr::select(2:4,7) %>%
+  fwrite(here('circ_seqs', 'blood_all.bed'), sep = '\t', col.names = F)
+
+blood_h_circs <- do.call(rbind,
+          lapply(list.files(path = here('ciri_res_blood'), pattern = 'circ.txt$', full.names = T)[1:4], fread)) %>%
+  dplyr::select(c(1:4,9)) %>%
+  distinct(circRNA_ID, .keep_all = T) %>%
+  mutate(dataset = 'healthy donors blood')
+
+fwrite(blood_h_circs, here('circs_list','blood_healthy_circs.tsv'), sep = '\t')
+
+blood_p_circs <- do.call(rbind,
+          lapply(list.files(path = here('ciri_res_blood'), pattern = 'circ.txt$', full.names = T)[5:7], fread)) %>%
+  dplyr::select(c(1:4,9)) %>%
+  distinct(circRNA_ID, .keep_all = T) %>%
+  mutate(dataset = 'GBM patients blood')
+
+fwrite(blood_p_circs, here('circs_list','blood_patients_circs.tsv'), sep = '\t')
+```
+
+extracting circRNA sequences (FCircSEC can be written in slightly more convenient way)
+
+```{r extract_seqs, warning=FALSE, message=FALSE}
+#system('wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_30/GRCh37_mapping/GRCh37.primary_assembly.genome.fa.gz')
+#system('wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_30/GRCh37_mapping/gencode_v30lift37.gtf.gz')
+#system('pigz -d *.gz')
+#system(paste0('mv ',here(),'/GRCh37.primary_assembly.genome.fa ',here(),'/gencode_v30lift37.gtf ',here(), '/circ_seqs'))
+
+#transcriptExtract(here('circ_seqs','gencode_v30lift37.gtf'), 'other', 'transcriptdata.txt') # run this line only once, it takes long time
+#fread(here('circ_seqs','transcriptdata.txt')) %>%
+  #fwrite(here('circ_seqs','transcript_data.txt'), sep = '\t', quote = T)
+fread(here('circ_seqs', 'blood_all.bed')) %>%
+  fwrite(here('circ_seqs','blood_all_quoted.bed'), sep = '\t', quote = T, col.names = F)
+circClassification(here('circ_seqs','transcript_data.txt'), here('circ_seqs','blood_all_quoted.bed'),here('circ_seqs','blood_all_class.txt'), here('circ_seqs','blood_all_class.bed'))      
+get.fasta(here('circ_seqs','GRCh37.primary_assembly.genome.fa'), here('circ_seqs','blood_all_class.bed'), here('circ_seqs','blood_all_genomic_seq.fa'))
+circSeqExt(here('circ_seqs','blood_all_genomic_seq.fa'), here('circ_seqs','blood_all_class.txt'), here('circ_seqs','blood_all.fa'))
+```
+
+circs annotation (Fig 9a-b)
+
+```{r annotation, warning=FALSE, message=FALSE}
+all_circs_blood %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end)) %>%
+  na.omit() %>%
+  dplyr::select('ID') %>%
+  fwrite(here('annotation','circMine_coords_blood.tsv'), sep = '\t')
+
+circMine_annot_blood <- fread(here('annotation', 'circMine_annot_blood.csv'))
+
+bloodH_circs_4annot <- blood_h_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end),
+         annotation = factor(if_else(ID%in%circMine_annot_blood$Hg19, 'Annotated circRNAs','Novel circRNAs')))
+
+pie_bloodH <- ggplot(plyr::count(bloodH_circs_4annot$annotation), aes(x = '', y = freq, fill = x)) +
+  geom_col(color = 'black') +
+  coord_polar(theta = 'y')+
+  scale_fill_grey() +  
+  theme_pubclean() +
+  theme(axis.text.x=element_blank())+
+  theme(axis.title.x=element_blank())+
+  theme(axis.title.y=element_blank())+
+  rremove('legend.title')
+
+pdf(here('Fig9','9a.pdf'))
+pie_bloodH
+dev.off()
+
+bloodP_circs_4annot <- blood_p_circs %>%
+  mutate(ID = paste0(chr,':',circRNA_start -1,'-', circRNA_end),
+         annotation = factor(if_else(ID%in%circMine_annot_blood$Hg19, 'Annotated circRNAs','Novel circRNAs')))
+
+pie_bloodP <- ggplot(plyr::count(bloodP_circs_4annot$annotation), aes(x = '', y = freq, fill = x)) +
+  geom_col(color = 'black') +
+  coord_polar(theta = 'y')+
+  scale_fill_grey() +  
+  theme_pubclean() +
+  theme(axis.text.x=element_blank())+
+  theme(axis.title.x=element_blank())+
+  theme(axis.title.y=element_blank())+
+  rremove('legend.title')
+
+pdf(here('Fig9','9b.pdf'))
+pie_bloodP
+dev.off()
+```
+
+venn diagram (Fig 9c)
+
+```{r venn, warning=FALSE, message=FALSE}
+hb_circs <- fread(here('circs_list','healthy_brain_circs.tsv'))
+gbm_prim_circs <- fread(here('circs_list','GBM_prim_circs.tsv'))
+
+venn_diag <- ggvenn(data = list(GBM_primary = gbm_prim_circs$circRNA_ID, Blood_healthy = blood_h_circs$circRNA_ID, Blood_patients = blood_p_circs$circRNA_ID, Healthy_brain = hb_circs$circRNA_ID), show_percentage = F)
+
+pdf(here('Fig9','9c.pdf'), width = 12, height = 9)
+venn_diag
+dev.off()
+```
+
+bar plot circ types (Fig 9d)
+
+```{r circ_types, warning=FALSE, message=FALSE}
+circ_types_df <- rbind(blood_h_circs, blood_p_circs) %>%
+  mutate(dataset = factor(dataset, levels = c('healthy donors blood','GBM patients blood')),
+         circRNA_type = factor(circRNA_type, levels = c('exon','intron','intergenic_region')))
+
+bar_plt <- ggplot(data = circ_types_df, aes(x = dataset, color = circRNA_type, fill = circRNA_type))+
+  geom_bar(stat="count", width=0.8)+
+  labs(y="Number of circRNA")+
+  theme_bw()+
+  theme(axis.text.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(axis.text.x=element_text(size=16, angle = 45, vjust = 1, hjust = 1)) +
+  theme(axis.title.y=element_text(size=20)) +
+  theme(legend.text=element_text(size=18)) +
+  theme(legend.title=element_text(size=20)) +
+  guides(color = guide_legend(override.aes = list(size = 3)))+
+  rremove('xlab')
+
+pdf((here('Fig9','9d.pdf')))
+bar_plt
+dev.off()
+```
+
+length (Fig 9e-f)
+
+```{r length, warning=FALSE, message=FALSE}
+all_circs_length <- readDNAStringSet(here('circ_seqs','blood_all.fa')) %>%
+  lapply(., length) %>%
+  unlist() %>%
+  enframe() %>%
+  dplyr::rename(c('ID'='name','length'='value')) %>%
+  mutate(ID = gsub('-','|',ID))
+blood_h_len <- all_circs_length %>%
+  filter(ID%in%blood_h_circs$circRNA_ID)
+blood_p_len <- all_circs_length %>%
+  filter(ID%in%blood_p_circs$circRNA_ID)
+
+blood_h_hist <- ggplot(data = blood_h_len, aes(x = length))+
+  geom_histogram(binwidth = 50, 
+                 col="black", 
+                 fill="blue", 
+                 alpha = .2)+ 
+  ggtitle("healthy donors blood")+
+  labs(x="Spliced length", y="Number of circRNA")+
+  theme_bw()+
+  theme(plot.title = element_text(hjust=0.5, size = 20))+
+  theme(axis.text.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(axis.title.x=element_text(size=20)) +
+  theme(axis.title.y=element_text(size=20)) +
+  coord_cartesian(xlim=c(1,5000))+
+  geom_vline(xintercept = median(hb_len$length),
+             col = "red",
+             lwd = .2,
+             linetype = 'dashed')
+
+blood_p_hist <- ggplot(data = blood_p_len, aes(x = length))+
+  geom_histogram(binwidth = 50, 
+                 col="black", 
+                 fill="blue", 
+                 alpha = .2)+ 
+  ggtitle("GBM patients blood")+
+  labs(x="Spliced length", y="Number of circRNA")+
+  theme_bw()+
+  theme(plot.title = element_text(hjust=0.5, size = 20))+
+  theme(axis.text.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(axis.title.x=element_text(size=20)) +
+  theme(axis.title.y=element_text(size=20)) +
+  coord_cartesian(xlim=c(1,5000))+
+  geom_vline(xintercept = median(prim_len$length),
+             col = "red",
+             lwd = .2,
+             linetype = 'dashed')
+
+pdf((here('Fig9','9e.pdf')))
+blood_h_hist
+dev.off()
+
+pdf((here('Fig9','9f.pdf')))
+blood_p_hist
+dev.off()
+```
+
+volcano plot (Fig 9g)
+
+```{r volc_plot, warning=FALSE, message=FALSE}
+CIRI.files <- list.files(path = here('ciri_res_blood'), pattern = 'circ.txt$', full.names = T)
+CIRI.files.designs <- c(0,0,0,0,1,1,1)
+blood.res <- circJuncDE(CIRI.files, CIRI.files.designs,circ.method='CIRI',DE.method='edgeR')
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', blood.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+blood.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', blood.res$gene)
+blood.res$geneName <- geneSymbol.res$SYMBOL[match(blood.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+blood.res.table <- blood.res[, c(1:5,8,30:34)]
+fwrite(subset(blood.res.table, blood.res.table$fdr <= 0.05), file = here('dgeRes','bloodHvsPDGEres.tsv'), sep = '\t')
+
+de_data <- blood.res.table %>%
+  mutate(diff_expressed = factor(case_when(lfc > 0.6 & fdr < 0.05 ~ 'UP',
+                                    lfc < -0.6 & fdr < 0.05 ~ 'DOWN',
+                                    T ~ 'NO'), levels = c('DOWN','UP','NO')))
+
+volc_plot <- ggplot(data=de_data, aes(x=lfc, y=-log10(fdr), col=diff_expressed)) + 
+  geom_point(size = 0.3) + 
+  theme_minimal() +
+  geom_vline(xintercept=c(-0.6, 0.6), col = 'red') +
+  geom_hline(yintercept=-log10(0.05), col = 'red') +
+  scale_color_manual(values=c('blue', 'red', 'black')) +
+  labs(title='glioblastoma patients blood \nvs \nhealthy donors blood', x = 'log2FoldChange', y = '-log10(FDR)') + 
+  xlim(-8,8) + 
+  theme(plot.title = element_text(hjust = 0.5, size = 20))+
+  theme(axis.text.x=element_text(size=16)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(axis.title.x=element_text(size=20)) +
+  theme(axis.title.y=element_text(size=20)) +
+  theme(legend.text=element_text(size=18)) +
+  theme(legend.title=element_text(size=20)) +
+  guides(color = guide_legend(override.aes = list(size = 3)))
+
+pdf(here('Fig9','9g.pdf'))
+volc_plot
+dev.off()
+```
+
+circRNA on chromosomes (suppl fig)
+
+```{r chrom, warning=FALSE, message=FALSE}
+chrom_cnt_table <- rbind(blood_h_circs, blood_p_circs) %>%
+  mutate(chr = factor(if_else(nchar(chr) == 4 & !chr == 'chrX' & !chr == 'chrY', gsub('chr','chr0',chr), chr)),
+         grouping_var = paste0(chr,'_',dataset),
+         dataset = factor(dataset, levels = c('healthy donors blood', 'GBM patients blood'))) %>%
+  group_by(grouping_var) %>%
+  mutate(chr_counts = n()) %>%
+  distinct(grouping_var, .keep_all = T) %>%
+  ungroup() %>%
+  group_by(dataset) %>%
+  mutate(chr_perc = chr_counts/sum(chr_counts))
+
+chr_bar_plt <- ggbarplot(chrom_cnt_table, x = 'chr', y = 'chr_perc',
+                         col='black', fill='blue', alpha = .2,
+                         facet.by = 'dataset')+ 
+  scale_y_continuous(labels = scales::percent)+
+  theme_bw()+
+  rremove('xlab')+
+  rremove('ylab')+
+  theme(axis.text.x=element_text(size=14,angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(strip.text.x = element_text(size = 20))
+
+pdf(here('suppl_figs','chr_blood.pdf'), width = 12, height = 8)
+chr_bar_plt
+dev.off()
+```

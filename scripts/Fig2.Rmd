@@ -17,13 +17,14 @@ library(data.table)
 library(org.Hs.eg.db)
 library(clusterProfiler)
 library(circMeta)
+library(ggpubr)
 library(here)
 ```
 
 loading files
 
 ```{r loading_files, warning=FALSE, message=FALSE}
-CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$')
+CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$', full.names = T)
 ```
 
 DGE healthy brain vs gbm
@@ -32,7 +33,7 @@ DGE healthy brain vs gbm
 hbVSgbm.files <- CIRI.files
 hbVSgbm.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
 fdr.level <- 0.05
-hbVSgbm.res <- circJuncDE(paste0(here(),'/ciri_res/',hbVSgbm.files), hbVSgbm.designs,circ.method='CIRI',DE.method='edgeR')
+hbVSgbm.res <- circJuncDE(hbVSgbm.files, hbVSgbm.designs,circ.method='CIRI',DE.method='edgeR')
 hbVSgbm.id <- rownames(hbVSgbm.res)[hbVSgbm.res$fdr<fdr.level]
 ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', hbVSgbm.res$gene))
 geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
@@ -48,7 +49,7 @@ DGE healthy brain vs GBM primary
 hbVSgbm_prim.files <- CIRI.files[c(1:18, 19:41)]
 hbVSgbm_prim.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
 fdr.level <- 0.05
-hbVSgbm_prim.res <- circJuncDE(paste0(here(),'/ciri_res/',hbVSgbm_prim.files), hbVSgbm_prim.designs,circ.method='CIRI',DE.method='edgeR')
+hbVSgbm_prim.res <- circJuncDE(hbVSgbm_prim.files, hbVSgbm_prim.designs,circ.method='CIRI',DE.method='edgeR')
 hbVSgbm_prim.id <- rownames(hbVSgbm_prim.res)[hbVSgbm_prim.res$fdr<fdr.level]
 ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', hbVSgbm_prim.res$gene))
 geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
@@ -64,7 +65,7 @@ DGE gbm prim vs rec
 gbm_recVSprim.files <- CIRI.files[c(19:41, 42:44)]
 gbm_recVSprim.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1)
 fdr.level <- 0.05
-gbm_recVSprim.res <- circJuncDE(paste0(here(),'/ciri_res/',gbm_recVSprim.files), gbm_recVSprim.designs,circ.method='CIRI',DE.method='edgeR')
+gbm_recVSprim.res <- circJuncDE(gbm_recVSprim.files, gbm_recVSprim.designs,circ.method='CIRI',DE.method='edgeR')
 gbm_recVSprim.id <- rownames(gbm_recVSprim.res)[gbm_recVSprim.res$fdr<fdr.level]
 ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', gbm_recVSprim.res$gene))
 geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
@@ -137,10 +138,159 @@ dot_plt
 dev.off()
 ```
 
-circ-lin ratio (Fig 2c)
+circ-lin ratio (Fig 2c-d)
+I prepare single boxplots instead of using facet function, because its easier to produce final figure (the same boxplots sizes)
 
 ```{r ratio, warning=FALSE, message=FALSE}
-#when decision will be made
+ratio_list <- c('chr7:121985628|122056218','chr2:120885264|120932580','chr15:54304845|54308083','chr6:99912480|99958106','chr1:27056142|27059283','chr5:21491430|21497305','chr3:145838899|145842016','chr5:82832826|82838087','chr7:55231426|55233130','chr6:31237743|31322442','chr6:29913011|29976954')
+
+ratio_table <- data.frame(dataset = rep(c('healthy brain','GBM \nprimary','GBM \nrecurrent'),c(18,23,3)), dataset2 = factor(rep(c('healthy brain', 'GBM'),c(18,26)), levels = c('healthy brain','GBM')))
+
+for(i in 1:length(CIRI.files)) {
+  tmp <- fread(CIRI.files[i])
+  ratio_table$CADPS2[i] <- tmp$junction_reads_ratio[match(ratio_list[1],tmp$circRNA_ID)]
+  ratio_table$EPB41L5[i] <- tmp$junction_reads_ratio[match(ratio_list[2],tmp$circRNA_ID)]
+  ratio_table$UNC13C[i] <- tmp$junction_reads_ratio[match(ratio_list[3],tmp$circRNA_ID)]
+  ratio_table$USP45[i] <- tmp$junction_reads_ratio[match(ratio_list[4],tmp$circRNA_ID)]
+  ratio_table$ARID1A[i] <- tmp$junction_reads_ratio[match(ratio_list[5],tmp$circRNA_ID)]
+  ratio_table$GUSBP1[i] <- tmp$junction_reads_ratio[match(ratio_list[6],tmp$circRNA_ID)]
+  ratio_table$PLOD2[i] <- tmp$junction_reads_ratio[match(ratio_list[7],tmp$circRNA_ID)]
+  ratio_table$VCAN[i] <- tmp$junction_reads_ratio[match(ratio_list[8],tmp$circRNA_ID)]
+  ratio_table$EGFR[i] <- tmp$junction_reads_ratio[match(ratio_list[9],tmp$circRNA_ID)]
+  ratio_table$`HLA-B`[i] <- tmp$junction_reads_ratio[match(ratio_list[10],tmp$circRNA_ID)]
+  ratio_table$`chr6:29913011|29976954`[i] <- tmp$junction_reads_ratio[match(ratio_list[11],tmp$circRNA_ID)]
+}
+
+ratio_table_final <- ratio_table %>%
+  pivot_longer(., cols = c(3:ncol(.)), names_to = 'circRNA_name', values_to = 'ratio') %>% 
+  replace(is.na(.), 0)
+
+CADPS2_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'CADPS2'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('CADPS2') +
+  ylim(c(0,1))
+
+EPB41L5_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'EPB41L5'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('EPB41L5') +
+  ylim(c(0,1))
+
+UNC13C_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'UNC13C'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('UNC13C') +
+  ylim(c(0,1))
+
+USP45_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'USP45'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('USP45') +
+  ylim(c(0,1))
+
+ARID1A_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'ARID1A'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('ARID1A') +
+  ylim(c(0,1))
+
+GUSBP1_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'GUSBP1'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('GUSBP1') +
+  ylim(c(0,1))
+
+PLOD2_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'PLOD2'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('PLOD2') +
+  ylim(c(0,1))
+
+VCAN_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'VCAN'), aes(x=dataset2, y=ratio, fill=dataset2)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('VCAN') +
+  ylim(c(0,1))
+
+EGFR_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'EGFR' & !dataset == 'healthy brain'), aes(x=dataset, y=ratio, fill=dataset)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('EGFR') +
+  ylim(c(0,1))
+
+HLAB_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'HLA-B' & !dataset == 'healthy brain'), aes(x=dataset, y=ratio, fill=dataset)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('HLA-B') +
+  ylim(c(0,1))
+
+intergenic_ratio <- ggplot(subset(ratio_table_final, circRNA_name == 'chr6:29913011|29976954' & !dataset == 'healthy brain'), aes(x=dataset, y=ratio, fill=dataset)) + 
+  geom_boxplot()+
+  labs(x = '',
+       y = '') +
+  theme_bw() +
+  theme(legend.position = "none") +
+  theme(axis.text.x=element_text(size=14)) +
+  theme(axis.text.y=element_text(size=16)) +
+  ggtitle('intergenic_chr6:29913011-29976954') +
+  ylim(c(0,1))
+
+ratio <- annotate_figure(ggarrange(CADPS2_ratio,EPB41L5_ratio,UNC13C_ratio,USP45_ratio,ARID1A_ratio,GUSBP1_ratio,PLOD2_ratio,VCAN_ratio,EGFR_ratio,HLAB_ratio,intergenic_ratio, ncol = 4, nrow = 3), left = text_grob('circ/lin reads ratio', rot = 90, size = 25))
+
+pdf(here('Fig2','2cd.pdf'), width = 12, height = 8)
+ratio
+dev.off()
 ```
 
 GSEA KEGG (supplementary fig)

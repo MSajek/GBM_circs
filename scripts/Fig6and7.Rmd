@@ -1,5 +1,5 @@
 ---
-title: "Fig6and7"
+title: "Fig6"
 author: "Marcin Sajek"
 date: "6/27/2022"
 output: html_document
@@ -15,6 +15,7 @@ library(dplyr)
 library(tidyverse)
 library(magrittr)
 library(data.table)
+library(readxl)
 library(broom)
 library(clusterProfiler)
 library(org.Hs.eg.db)
@@ -73,7 +74,7 @@ TMM_norm_counts <- sweep(jct_count_matrix_final, MARGIN = 2, norm_factors, `*`) 
 fwrite(TMM_norm_counts, here('counts','GBM_and_brain_all_TMM_norm_junction_counts.tsv'), sep = '\t')
 ```
 
-correlation analysis (Fig 6a-c)
+correlation analysis (Fig 6a-b)
 
 ```{r cor, warning=FALSE, message=FALSE}
 de_circs <- fread(here('dgeRes','GBMvsBrainDGEres.tsv')) %>%
@@ -115,7 +116,7 @@ for(i in (2:ncol(circs4cor))){
 cor_df_sp_sign <- cor_df_sp %>%
   filter(p.value < 0.05) %>%
   arrange(estimate) %>%
-  mutate(direction = if_else(estimate > 0, 1,0), rbp = factor(rbp, levels = c('CPEB3','ELAVL2','ELAVL3','ELAVL4','CPEB1','RBM24','ZFP36','PTBP1','RBM47','SF3B4','RBMS2','RC3H1','ZNF326','TIA1','RBM41','FUBP3','PUF60', 'TRA2A','HNRNPD')))
+  mutate(direction = if_else(estimate > 0, 1,0), rbp = factor(rbp, levels = c('CPEB3','ELAVL2','ELAVL3','ELAVL4','CPEB1','RBM24','ZFP36','PTBP1','RBM47','SF3B4','RBMS2','RC3H1','ZNF326','TIA1','RBM41','FUBP3','PUF60', 'SRSF2', 'TRA2A','HNRNPD','ZC3H10','SRSF4')))
 
 direction <- cor_df_sp_sign %>% 
   group_by(rbp) %>% 
@@ -244,9 +245,78 @@ cor_bar_plt <- ggbarplot(bar_plt_table, x = 'correlation_direction', y = 'counts
   rremove('legend')+
   rotate_x_text(90)
 
-cor_bar_plt <- ggpar(cor_bar_plt, ylim = c(0,600))
+cor_bar_plt <- ggpar(cor_bar_plt, ylim = c(0,650))
 
 pdf(here('Fig7','7.pdf'))
 cor_bar_plt
+dev.off()
+```
+
+de circRNA and de RBPs heatmaps (suppl figs)
+
+```{r de_heatmaps, warning=FALSE, message=FALSE}
+tmm_circ_4_heatmap <- TMM_norm_counts_filtered %>%
+  dplyr::select(-c('ID','ENSEMBL')) %>%
+  group_by(SYMBOL) %>%
+  mutate(tmp = sprintf('%02d',1:n()),
+         SYMBOL = paste0('circ',SYMBOL,'_',tmp)) %>%
+  ungroup() %>%
+  dplyr::select(-c('tmp')) %>%
+  column_to_rownames('SYMBOL') %>%
+  as.matrix()
+rbps_list <- read_xlsx(here('RBP','table_2_Steffie.xlsx'), sheet = 2)
+de_linear <- fread(here('dgeRes','hb_vs_gbm_linear.tsv'))
+tmm_de_rbps_4_heatmap <- fread(here('linear','tmm_counts_linear.tsv')) %>%
+  filter(ENSEMBL%in%rbps_list$`gene id`& ENSEMBL%in%de_linear$ENSEMBL) %>%
+  dplyr::select(-c('ENSEMBL')) %>%
+  distinct(SYMBOL, .keep_all = T) %>%
+  column_to_rownames('SYMBOL') %>%
+  as.matrix()
+metadata <- fread(here('metadata.tsv')) %>%
+  mutate(mol_subtype = case_when(is.na(mol_subtype) == T & nchar(ID) == 4 ~ 'healthy_brain',
+                                 is.na(mol_subtype) == T & nchar(ID) == 3 ~ 'recurrent',
+                                 T ~ mol_subtype))
+annotation_col <- data.frame(Source = factor(rep(c('healthy_brain', 'glioblastoma'), c(18,26))),
+  GBM_subtype = factor(metadata$mol_subtype)) %>%
+  set_rownames(colnames(tmm_circ_4_heatmap))
+ann_colors <- list(Source = c(healthy_brain = "#1B9E77", glioblastoma = "#D95F02"),
+    GBM_subtype = c(classical = 'red', healthy_brain = "#1B9E77", mesenchymal = 'magenta', neural = 'blue', proneural = 'yellow', recurrent = 'grey')
+  )
+col<- colorRampPalette(c('blue', 'white', 'red'))(1000)
+
+circ_htmp <- pheatmap(tmm_circ_4_heatmap, 
+                      color = col,  
+                      annotation_col = annotation_col, 
+                      annotation_colors = ann_colors,  
+                      clustering_method = 'ward.D2',
+                      cluster_rows = T, 
+                      cluster_cols = T, 
+                      show_rownames=T,
+                      border_color=NA,
+                      scale="row", 
+                      fontsize_row = 6, 
+                      height=40,
+                      main = 'Differential circRNA expression \nglioblastoma vs healthy brain') 
+
+pdf(here('suppl_figs','circ_heatmap.pdf'))
+circ_htmp
+dev.off()
+
+rbps_htmp <- pheatmap(tmm_de_rbps_4_heatmap, 
+                      color = col,  
+                      annotation_col = annotation_col, 
+                      annotation_colors = ann_colors, 
+                      clustering_method = 'ward.D2',
+                      cluster_rows = T, 
+                      cluster_cols = T, 
+                      show_rownames=T,
+                      border_color=NA,
+                      scale="row", 
+                      fontsize_row = 6, 
+                      height=40,
+                      main = 'Differential RBP expression \nglioblastoma vs healthy brain') 
+
+pdf(here('suppl_figs','rbp_heatmap.pdf'))
+rbps_htmp
 dev.off()
 ```

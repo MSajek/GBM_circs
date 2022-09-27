@@ -1,0 +1,75 @@
+---
+title: "DGE"
+author: "Marcin Sajek"
+date: "6/22/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE warning=FALSE message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(circMeta)
+library(here)
+```
+
+loading files
+
+```{r loading_files, warning=FALSE, message=FALSE}
+CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$')
+```
+
+DGE healthy brain vs gbm
+
+```{r hb_vs_gbm, warning=FALSE, message=FALSE}
+hbVSgbm.files <- CIRI.files
+hbVSgbm.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
+fdr.level <- 0.05
+hbVSgbm.res <- circJuncDE(paste0(here(),'/ciri_res/',hbVSgbm.files), hbVSgbm.designs,circ.method='CIRI',DE.method='edgeR')
+hbVSgbm.id <- rownames(hbVSgbm.res)[hbVSgbm.res$fdr<fdr.level]
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', hbVSgbm.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+hbVSgbm.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', hbVSgbm.res$gene)
+hbVSgbm.res$geneName <- geneSymbol.res$SYMBOL[match(hbVSgbm.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+hbVSgbm.res.table <- hbVSgbm.res[, c(1:5,8,141:145)]
+fwrite(subset(hbVSgbm.res.table, hbVSgbm.res.table$fdr <= 0.05), file = here('dgeRes','GBMvsBrainDGEres.tsv'), sep = '\t')
+```
+
+DGE healthy brain vs GBM primary
+
+```{r hb_vs_gbmp, warning=FALSE, message=FALSE}
+hbVSgbm_prim.files <- CIRI.files[c(1:18, 19:41)]
+hbVSgbm_prim.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1)
+fdr.level <- 0.05
+hbVSgbm_prim.res <- circJuncDE(paste0(here(),'/ciri_res/',hbVSgbm_prim.files), hbVSgbm_prim.designs,circ.method='CIRI',DE.method='edgeR')
+hbVSgbm_prim.id <- rownames(hbVSgbm_prim.res)[hbVSgbm_prim.res$fdr<fdr.level]
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', hbVSgbm_prim.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+hbVSgbm_prim.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', hbVSgbm_prim.res$gene)
+hbVSgbm_prim.res$geneName <- geneSymbol.res$SYMBOL[match(hbVSgbm_prim.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+hbVSgbm_prim.res.table <- hbVSgbm_prim.res[, c(1:5,8,132:136)]
+fwrite(subset(hbVSgbm_prim.res.table, hbVSgbm_prim.res.table$fdr <= 0.05), file = here('dgeRes','GBMprimvsBrainDGEres.tsv'), sep = '\t')
+```
+
+DGE gbm prim vs rec
+
+```{r gbmp_vs_gbmr, warning=FALSE, message=FALSE}
+gbm_recVSprim.files <- CIRI.files[c(19:41, 42:44)]
+gbm_recVSprim.designs <- c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1)
+fdr.level <- 0.05
+gbm_recVSprim.res <- circJuncDE(paste0(here(),'/ciri_res/',gbm_recVSprim.files), gbm_recVSprim.designs,circ.method='CIRI',DE.method='edgeR')
+gbm_recVSprim.id <- rownames(gbm_recVSprim.res)[gbm_recVSprim.res$fdr<fdr.level]
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', gbm_recVSprim.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+gbm_recVSprim.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', gbm_recVSprim.res$gene)
+gbm_recVSprim.res$geneName <- geneSymbol.res$SYMBOL[match(gbm_recVSprim.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+gbm_recVSprim.res.table <- gbm_recVSprim.res[, c(1:5,8,87:91)]
+fwrite(subset(gbm_recVSprim.res.table, gbm_recVSprim.res.table$fdr <= 0.05), file = here('dgeRes','GBMrecVsPrimDGEres.tsv'), sep = '\t')
+```

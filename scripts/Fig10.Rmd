@@ -1,0 +1,198 @@
+---
+title: "Fig10"
+author: "Marcin Sajek"
+date: "7/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading_libraries, echo= FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(circMeta)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ggvenn)
+library(pheatmap)
+library(here)
+```
+
+subtypes heatmap (Fig 10a)
+
+```{r subtypes_heatmap, warning=FALSE,message=FALSE}
+heatmap_data <- fread(here('subtypes','average_zscores_subtupes.csv')) %>%
+  column_to_rownames('V1') %>%
+  as.matrix()
+
+col <- colorRampPalette(c("blue", "white", "red"))(1000)
+rg <- max(abs(heatmap_data))
+breaks <- seq(-rg, rg, length.out = 1000)
+
+subt_htmp <- pheatmap(heatmap_data,
+                      cellwidth = 10,
+                      cellheight = 20,
+                      color = col,
+                      fontsize = 10,
+                      breaks = breaks,
+                      clustering_method = 'ward.D2',
+                      cluster_rows = F)
+
+pdf(here('Fig10','10a.pdf'), width = 8, height = 6)
+subt_htmp
+dev.off()
+```
+
+
+dge between subtypes
+
+```{r substypes_dge, warning=FALSE, message=FALSE}
+CIRI.files <- list.files(path = here('ciri_res'), pattern = 'circ.txt$', full.names = T)[19:41]
+
+clVSothers.designs <- c(0,1,0,1,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0)
+mesVSothers.designs <- c(0,0,1,0,0,0,0,0,1,1,1,1,0,1,0,0,0,0,0,1,0,0,1)
+neuVSothers.designs <- c(0,0,0,0,0,1,0,1,0,0,0,0,0,0,1,0,1,0,0,0,0,1,0)
+proVSothers.designs <- c(1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0)
+
+clVSothers.res <- circJuncDE(CIRI.files, clVSothers.designs,circ.method='CIRI',DE.method='edgeR')
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', clVSothers.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+clVSothers.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', clVSothers.res$gene)
+clVSothers.res$geneName <- geneSymbol.res$SYMBOL[match(clVSothers.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+clVSothers.res.table <- clVSothers.res[, c(1:5,8,78:82)]
+if(nrow(subset(clVSothers.res.table, clVSothers.res.table$fdr <= 0.05))>0) {
+  fwrite(subset(clVSothers.res.table, clVSothers.res.table$fdr <= 0.05), file = here('dgeRes','clVSothersGBMres.tsv'), sep = '\t')
+}
+
+mesVSothers.res <- circJuncDE(CIRI.files, mesVSothers.designs,circ.method='CIRI',DE.method='edgeR')
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', mesVSothers.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+mesVSothers.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', mesVSothers.res$gene)
+mesVSothers.res$geneName <- geneSymbol.res$SYMBOL[match(mesVSothers.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+mesVSothers.res.table <- mesVSothers.res[, c(1:5,8,78:82)]
+if(nrow(subset(mesVSothers.res.table, mesVSothers.res.table$fdr <= 0.05))>0) {
+  fwrite(subset(mesVSothers.res.table, mesVSothers.res.table$fdr <= 0.05), file = here('dgeRes','mesVSothersGBMres.tsv'), sep = '\t')
+}
+
+neuVSothers.res <- circJuncDE(CIRI.files, neuVSothers.designs,circ.method='CIRI',DE.method='edgeR')
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', neuVSothers.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+neuVSothers.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', neuVSothers.res$gene)
+neuVSothers.res$geneName <- geneSymbol.res$SYMBOL[match(neuVSothers.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+neuVSothers.res.table <- neuVSothers.res[, c(1:5,8,78:82)]
+if(nrow(subset(neuVSothers.res.table, neuVSothers.res.table$fdr <= 0.05))>0) {
+  fwrite(subset(neuVSothers.res.table, neuVSothers.res.table$fdr <= 0.05), file = here('dgeRes','neuVSothersGBMres.tsv'), sep = '\t')
+}
+
+proVSothers.res <- circJuncDE(CIRI.files, proVSothers.designs,circ.method='CIRI',DE.method='edgeR')
+ensembl.res <- as.character(gsub('\\.+\\d*_\\d*.*', '', proVSothers.res$gene))
+geneSymbol.res <- bitr(ensembl.res, fromType="ENSEMBL", toType="SYMBOL", OrgDb="org.Hs.eg.db")
+proVSothers.res$ENSEMBL <- gsub('\\.+\\d*_\\d*.*', '', proVSothers.res$gene)
+proVSothers.res$geneName <- geneSymbol.res$SYMBOL[match(proVSothers.res$ENSEMBL, geneSymbol.res$ENSEMBL)]
+proVSothers.res.table <- proVSothers.res[, c(1:5,8,78:82)]
+if(nrow(subset(proVSothers.res.table, proVSothers.res.table$fdr <= 0.05))>0) {
+  fwrite(subset(proVSothers.res.table, proVSothers.res.table$fdr <= 0.05), file = here('dgeRes','proVSothersGBMres.tsv'), sep = '\t')
+}
+```
+
+venn diagram (Fig 10b)
+
+```{r venn_diagram, warning=FALSE, message=FALSE}
+hb_circs <- fread(here('circs_list','healthy_brain_circs.tsv'))
+
+cl <- do.call(rbind,
+          lapply(CIRI.files[which(clVSothers.designs == 1)], fread)) %>%
+  dplyr::select(c(1:4,9)) %>%
+  distinct(circRNA_ID, .keep_all = T) %>%
+  filter(!circRNA_ID%in%hb_circs$circRNA_ID) %>%
+  mutate(dataset = 'GBM classical')
+
+fwrite(cl, here('circs_list','GBM_classical_circs.tsv'), sep = '\t')
+
+mes <- do.call(rbind,
+          lapply(CIRI.files[which(mesVSothers.designs == 1)], fread)) %>%
+  dplyr::select(c(1:4,9)) %>%
+  distinct(circRNA_ID, .keep_all = T) %>%
+  filter(!circRNA_ID%in%hb_circs$circRNA_ID) %>%
+  mutate(dataset = 'GBM mesenchymal')
+
+fwrite(mes, here('circs_list','GBM_mesenchymal_circs.tsv'), sep = '\t')
+
+neu <- do.call(rbind,
+          lapply(CIRI.files[which(neuVSothers.designs == 1)], fread)) %>%
+  dplyr::select(c(1:4,9)) %>%
+  distinct(circRNA_ID, .keep_all = T) %>%
+  filter(!circRNA_ID%in%hb_circs$circRNA_ID) %>%
+  mutate(dataset = 'GBM neural')
+
+fwrite(neu, here('circs_list','GBM_neural_circs.tsv'), sep = '\t')
+
+pro <- do.call(rbind,
+          lapply(CIRI.files[which(proVSothers.designs == 1)], fread)) %>%
+  dplyr::select(c(1:4,9)) %>%
+  distinct(circRNA_ID, .keep_all = T) %>%
+  filter(!circRNA_ID%in%hb_circs$circRNA_ID) %>%
+  mutate(dataset = 'GBM proneural')
+
+fwrite(pro, here('circs_list','GBM_proneural_circs.tsv'), sep = '\t')
+
+cl_uniq <- cl %>%
+  filter(!circRNA_ID%in%mes$circRNA_ID & !circRNA_ID%in%neu$circRNA_ID & !circRNA_ID%in%pro$circRNA_ID)
+
+fwrite(cl_uniq, here('circs_list','GBM_classical_unique_circs.tsv'), sep = '\t')
+
+mes_uniq <- mes %>%
+  filter(!circRNA_ID%in%cl$circRNA_ID & !circRNA_ID%in%neu$circRNA_ID & !circRNA_ID%in%pro$circRNA_ID)
+
+fwrite(mes_uniq, here('circs_list','GBM_mesenchymal_unique_circs.tsv'), sep = '\t')
+
+neu_uniq <- neu %>%
+  filter(!circRNA_ID%in%mes$circRNA_ID & !circRNA_ID%in%cl$circRNA_ID & !circRNA_ID%in%pro$circRNA_ID)
+
+fwrite(neu_uniq, here('circs_list','GBM_neural_unique_circs.tsv'), sep = '\t')
+
+pro_uniq <- pro %>%
+  filter(!circRNA_ID%in%mes$circRNA_ID & !circRNA_ID%in%neu$circRNA_ID & !circRNA_ID%in%cl$circRNA_ID)
+
+fwrite(pro_uniq, here('circs_list','GBM_proneural_unique_circs.tsv'), sep = '\t')
+
+venn_diag <- ggvenn(data = list(proneural = pro$circRNA_ID, mesenchymal = mes$circRNA_ID, neural = neu$circRNA_ID, classical = cl$circRNA_ID), show_percentage = F)
+
+pdf(here('Fig10','10b.pdf'), width = 12, height = 9)
+venn_diag
+dev.off()
+```
+
+circRNA on chromosomes (suppl fig)
+
+```{r chrom, warning=FALSE, message=FALSE}
+chrom_cnt_table <- rbind(cl,mes,neu,pro) %>%
+  mutate(chr = factor(if_else(nchar(chr) == 4 & !chr == 'chrX' & !chr == 'chrY', gsub('chr','chr0',chr), chr)),
+         grouping_var = paste0(chr,'_',dataset),
+         dataset = factor(dataset)) %>%
+  group_by(grouping_var) %>%
+  mutate(chr_counts = n()) %>%
+  distinct(grouping_var, .keep_all = T) %>%
+  ungroup() %>%
+  group_by(dataset) %>%
+  mutate(chr_perc = chr_counts/sum(chr_counts))
+
+chr_bar_plt <- ggbarplot(chrom_cnt_table, x = 'chr', y = 'chr_perc',
+                         col='black', fill='blue', alpha = .2,
+                         facet.by = 'dataset')+ 
+  scale_y_continuous(labels = scales::percent)+
+  theme_bw()+
+  rremove('xlab')+
+  rremove('ylab')+
+  theme(axis.text.x=element_text(size=14,angle = 90, vjust = 0.5, hjust=1)) +
+  theme(axis.text.y=element_text(size=16)) +
+  theme(strip.text.x = element_text(size = 20))
+
+pdf(here('suppl_figs','chr_GBM_subtypes.pdf'), width = 16, height = 8)
+chr_bar_plt
+dev.off()
+```
